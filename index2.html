@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Forza Horizon 6 - Web Arcade Edition</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,700;0,900;1,900&display=swap');
+        
+        body {
+            font-family: 'Montserrat', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            overflow: hidden;
+            background-color: #050505;
+        }
+
+        .horizon-font {
+            font-style: italic;
+            font-weight: 900;
+            text-transform: uppercase;
+        }
+
+        /* Speedometer Clip Path */
+        .speed-gauge {
+            clip-path: polygon(0 0, 100% 0, 85% 100%, 0% 100%);
+        }
+
+        /* Horizon Glassmorphism */
+        .horizon-card {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .horizon-btn {
+            background: linear-gradient(135deg, #ff0055 0%, #ff5500 100%);
+            transition: all 0.2s ease;
+        }
+        .horizon-btn:hover {
+            transform: skewX(-10deg) scale(1.05);
+            box-shadow: 0 0 20px rgba(255, 0, 85, 0.6);
+        }
+    </style>
+</head>
+<body class="w-screen h-screen m-0 p-0 overflow-hidden text-white select-none">
+
+    <!-- 3D Canvas -->
+    <div id="canvas-container" class="w-full h-full absolute inset-0 z-0"></div>
+
+    <!-- UI Overlay Layer -->
+    <div id="ui-layer" class="relative z-10 w-full h-full pointer-events-none flex flex-col justify-between p-4 md:p-6">
+        
+        <!-- Top Bar: Map Info, Drift Score, Horizon Fest Title -->
+        <div class="flex justify-between items-start w-full">
+            <!-- Left Info -->
+            <div class="horizon-card px-4 py-2 rounded-lg flex items-center space-x-3 border-l-4 border-pink-500 pointer-events-auto">
+                <i class="fa-solid fa-flag-checkered text-pink-500 text-xl"></i>
+                <div>
+                    <h1 class="horizon-font text-lg md:text-xl tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-yellow-400">
+                        FORZA HORIZON 6
+                    </h1>
+                    <p class="text-xs text-gray-300 font-bold uppercase tracking-widest" id="location-name">JAPAN FESTIVAL PARK</p>
+                </div>
+            </div>
+
+            <!-- Drift Score Display (Center) -->
+            <div id="drift-score-container" class="flex flex-col items-center opacity-0 transition-opacity duration-300">
+                <span class="horizon-font text-yellow-400 text-3xl md:text-5xl drop-shadow-[0_0_10px_rgba(250,204,21,0.8)]" id="drift-score">0</span>
+                <span class="horizon-font text-xs tracking-widest text-pink-400">DRIFT SKILL x<span id="drift-multiplier">1.0</span></span>
+            </div>
+
+            <!-- Right Controls / Options -->
+            <div class="flex space-x-2 pointer-events-auto">
+                <button id="camera-btn" title="切換視角 (V)" class="horizon-card p-3 rounded-lg hover:bg-white/20 transition active:scale-95">
+                    <i class="fa-solid fa-camera text-lg"></i>
+                </button>
+                <button id="car-select-btn" title="選擇車輛" class="horizon-card p-3 rounded-lg hover:bg-white/20 transition active:scale-95">
+                    <i class="fa-solid fa-car text-lg"></i>
+                </button>
+                <button id="reset-btn" title="重置車輛 (R)" class="horizon-card p-3 rounded-lg hover:bg-white/20 transition active:scale-95">
+                    <i class="fa-solid fa-rotate-left text-lg"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Center Notification Toast -->
+        <div id="notification" class="self-center horizon-card px-6 py-2 rounded-full border-pink-500/50 text-center transform translate-y-10 opacity-0 transition-all duration-300">
+            <span class="horizon-font text-sm text-yellow-300" id="notification-text">Welcome to Horizon Fest!</span>
+        </div>
+
+        <!-- Bottom Bar: Minimap & Speedometer -->
+        <div class="flex justify-between items-end w-full">
+            
+            <!-- Minimap Container -->
+            <div class="relative horizon-card w-32 h-32 md:w-44 md:h-44 rounded-full overflow-hidden border-2 border-pink-500/40 shadow-2xl pointer-events-auto">
+                <canvas id="minimap" class="w-full h-full"></canvas>
+                <!-- Player Marker -->
+                <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div class="w-3 h-3 bg-pink-500 rounded-full border-2 border-white shadow-[0_0_8px_#ff0055]"></div>
+                </div>
+            </div>
+
+            <!-- Speedometer Gauge (Right Bottom) -->
+            <div class="flex flex-col items-end pointer-events-auto">
+                <div class="horizon-card speed-gauge px-6 py-4 rounded-br-2xl border-r-4 border-yellow-400 bg-black/80 flex items-baseline space-x-2">
+                    <span class="horizon-font text-5xl md:text-7xl font-black text-white italic tracking-tighter" id="speed-text">0</span>
+                    <div class="flex flex-col">
+                        <span class="horizon-font text-xs text-yellow-400 tracking-wider">KM/H</span>
+                        <span class="horizon-font text-xs text-gray-400" id="gear-text">GEAR D</span>
+                    </div>
+                </div>
+                
+                <!-- Nitro Bar -->
+                <div class="w-48 md:w-64 h-3 bg-gray-800/80 rounded-full mt-2 overflow-hidden border border-white/20">
+                    <div id="nitro-bar" class="h-full bg-gradient-to-r from-cyan-500 to-blue-500 w-full transition-all duration-75"></div>
+                </div>
+                <div class="text-[10px] text-cyan-400 font-bold horizon-font mt-1">NITRO (PRESS SHIFT / TOUCH)</div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Mobile Touch Controls Overlay -->
+    <div id="touch-controls" class="absolute inset-0 z-20 pointer-events-none flex justify-between p-6 md:hidden">
+        <!-- Steering Left/Right & Signal Indicators -->
+        <div class="flex flex-col justify-end space-y-3 pointer-events-auto">
+            <!-- Indicator Lights Row -->
+            <div class="flex space-x-2">
+                <button id="btn-signal-left" title="左轉燈" class="w-11 h-11 bg-yellow-600/30 backdrop-blur-md rounded-xl border border-yellow-500/40 active:bg-yellow-500/70 flex items-center justify-center text-yellow-400 text-sm">
+                    <i class="fa-solid fa-caret-left text-lg"></i>
+                </button>
+                <button id="btn-signal-hazard" title="雙黃警示燈" class="w-11 h-11 bg-orange-600/30 backdrop-blur-md rounded-xl border border-orange-500/40 active:bg-orange-500/70 flex items-center justify-center text-orange-400 text-sm">
+                    <i class="fa-solid fa-triangle-exclamation text-base"></i>
+                </button>
+                <button id="btn-signal-right" title="右轉燈" class="w-11 h-11 bg-yellow-600/30 backdrop-blur-md rounded-xl border border-yellow-500/40 active:bg-yellow-500/70 flex items-center justify-center text-yellow-400 text-sm">
+                    <i class="fa-solid fa-caret-right text-lg"></i>
+                </button>
+            </div>
+            <!-- Steering Left/Right Buttons -->
+            <div class="flex space-x-3 items-end">
+                <button id="btn-left" class="w-16 h-16 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 active:bg-pink-500/50 flex items-center justify-center text-2xl">
+                    <i class="fa-solid fa-arrow-left"></i>
+                </button>
+                <button id="btn-right" class="w-16 h-16 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 active:bg-pink-500/50 flex items-center justify-center text-2xl">
+                    <i class="fa-solid fa-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+        <!-- Throttle, Brake, Nitro -->
+        <div class="flex space-x-3 items-end pointer-events-auto">
+            <button id="btn-brake" class="w-16 h-16 bg-red-600/30 backdrop-blur-md rounded-2xl border border-red-500/40 active:bg-red-600/70 flex items-center justify-center text-2xl">
+                <i class="fa-solid fa-ban"></i>
+            </button>
+            <button id="btn-nitro" class="w-14 h-14 bg-cyan-600/30 backdrop-blur-md rounded-2xl border border-cyan-500/40 active:bg-cyan-500/70 flex items-center justify-center text-xl">
+                <i class="fa-solid fa-bolt"></i>
+            </button>
+            <button id="btn-gas" class="w-16 h-20 bg-green-600/30 backdrop-blur-md rounded-2xl border border-green-500/40 active:bg-green-600/70 flex items-center justify-center text-3xl">
+                <i class="fa-solid fa-gas-pump"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Car Selector Modal -->
+    <div id="car-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-lg flex items-center justify-center hidden opacity-0 transition-opacity duration-300">
+        <div class="horizon-card w-11/12 max-w-3xl p-6 rounded-2xl border border-pink-500/30">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="horizon-font text-2xl text-pink-500">SELECT YOUR RIDE</h2>
+                <button id="close-modal-btn" class="text-gray-400 hover:text-white text-xl"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4" id="car-list">
+                <!-- Dynamically populated car cards -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Game Logic (Three.js & Physics) -->
+    <script>
+        // --- CAR DATA SPECIFICATIONS ---
+        const CAR_PRESETS = [
+            {
+                id: 'hypercar',
+                name: 'Horizon Apex GT',
+                type: 'Hypercar',
+                color: 0xff0055,
+                topSpeed: 240,
+                accel: 0.28,
+                handling: 0.045,
+                driftFactor: 0.96,
+                desc: '極致加速與最高速度的空氣動力學神車。'
+            },
+            {
+                id: 'tuner',
+                name: 'Fujin Drift R35',
+                type: 'JDM Tuner',
+                color: 0x00d2ff,
+                topSpeed: 210,
+                accel: 0.24,
+                handling: 0.055,
+                driftFactor: 0.92,
+                desc: '專為甩尾設計，擁有強大抓地力與過彎操控。'
+            },
+            {
+                id: 'offroad',
+                name: 'Beast 4x4 Trophy',
+                type: 'Off-Road',
+                color: 0xffaa00,
+                topSpeed: 180,
+                accel: 0.20,
+                handling: 0.038,
+                driftFactor: 0.98,
+                desc: '粗暴的越野巨獸，全地形適應力最佳。'
+            }
+        ];
+
+        let selectedCarIndex = 0;
+
+        // --- GLOBAL GAME VARIABLES ---
+        let scene, camera, renderer;
+        let playerCarGroup, carBodyMesh, wheelMeshes = [];
+        let leftSignalMeshes = [], rightSignalMeshes = [];
+        let environmentObjects = [];
+        let mapBoundaries = 1000; // World scale
+
+        // Turn Signal Indicators State ('off', 'left', 'right', 'hazard')
+        let turnSignalState = 'off';
+        let signalBlinkTimer = 0;
+        let signalBlinkVisible = false;
+
+        // Car Motion Physics State
+        let carPhysics = {
+            x: 0, z: 0,
+            speed: 0,
+            heading: 0,
+            steeringAngle: 0,
+            nitro: 100,
+            isNitroActive: false,
+            isDrifting: false,
+            driftScore: 0,
+            driftMultiplier: 1.0
+        };
+
+        // Input States
+        const keys = {
+            up: false, down: false, left: false, right: false,
+            nitro: false, brake: false
+        };
+
+        // Camera Modes: 0: Chase Third Person, 1: Hood First Person, 2: Far Orbit
+        let cameraMode = 0;
+
+        // Minimap Canvas Context
+        let minimapCanvas, minimapCtx;
+
+        // --- INITIALIZATION ---
+        window.addEventListener('load', () => {
+            initEngine();
+            buildEnvironment();
+            createPlayerCar(CAR_PRESETS[selectedCarIndex]);
+            initMinimap();
+            setupEventListeners();
+            populateCarModal();
+            animate();
+            showNotification("Welcome to Horizon 6: Open World");
+        });
+
+        // --- THREE.JS SCENE SETUP ---
+        function initEngine() {
+            const container = document.getElementById('canvas-container');
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xdce6f2);
+            scene.fog = new THREE.FogExp2(0xdce6f2, 0.0015);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.2;
+            container.appendChild(renderer.domElement);
+
+            // Lighting Setup
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const sunLight = new THREE.DirectionalLight(0xfffaed, 1.2);
+            sunLight.position.set(300, 500, 200);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            sunLight.shadow.camera.near = 0.5;
+            sunLight.shadow.camera.far = 1500;
+            const d = 300;
+            sunLight.shadow.camera.left = -d;
+            sunLight.shadow.camera.right = d;
+            sunLight.shadow.camera.top = d;
+            sunLight.shadow.camera.bottom = -d;
+            scene.add(sunLight);
+        }
+
+        // --- ENVIRONMENT & WORLD GENERATION ---
+        function buildEnvironment() {
+            // Ground Mesh
+            const groundGeo = new THREE.PlaneGeometry(mapBoundaries * 2, mapBoundaries * 2);
+            const groundMat = new THREE.MeshStandardMaterial({ color: 0x2e3b2b, roughness: 0.9, metalness: 0.1 });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // Main Asphalt Track System (Loop Track)
+            const trackGroup = new THREE.Group();
+            
+            // Outer Main Ring Road
+            const roadRingGeo = new THREE.RingGeometry(250, 290, 64);
+            const roadMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6 });
+            const roadRing = new THREE.Mesh(roadRingGeo, roadMat);
+            roadRing.rotation.x = -Math.PI / 2;
+            roadRing.position.y = 0.1;
+            roadRing.receiveShadow = true;
+            trackGroup.add(roadRing);
+
+            // Center Festival Hub Plaza
+            const hubGeo = new THREE.CircleGeometry(120, 32);
+            const hubMat = new THREE.MeshStandardMaterial({ color: 0x222225, roughness: 0.5 });
+            const hub = new THREE.Mesh(hubGeo, hubMat);
+            hub.rotation.x = -Math.PI / 2;
+            hub.position.y = 0.1;
+            hub.receiveShadow = true;
+            trackGroup.add(hub);
+
+            // Connecting Roads
+            for(let i=0; i<4; i++) {
+                const connGeo = new THREE.PlaneGeometry(40, 260);
+                const conn = new THREE.Mesh(connGeo, roadMat);
+                conn.rotation.x = -Math.PI / 2;
+                conn.rotation.z = (Math.PI / 2) * i;
+                conn.position.y = 0.1;
+                conn.receiveShadow = true;
+                trackGroup.add(conn);
+            }
+
+            scene.add(trackGroup);
+
+            // Decorative Props: Buildings, Trees, Festival Arches, Street Lights
+            generateProps();
+        }
+
+        function generateProps() {
+            const buildingMat = new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.4 });
+            const glassMat = new THREE.MeshStandardMaterial({ color: 0x88c0d0, roughness: 0.1, metalness: 0.9 });
+            const treeLeafMat = new THREE.MeshStandardMaterial({ color: 0x2d5a27, roughness: 0.8 });
+            const treeTrunkMat = new THREE.MeshStandardMaterial({ color: 0x5c4033 });
+
+            // Generate Buildings around Outer Track
+            for (let i = 0; i < 40; i++) {
+                const angle = (i / 40) * Math.PI * 2;
+                const dist = 320 + Math.random() * 150;
+                const bx = Math.cos(angle) * dist;
+                const bz = Math.sin(angle) * dist;
+
+                const h = 20 + Math.random() * 60;
+                const w = 20 + Math.random() * 20;
+
+                const bGroup = new THREE.Group();
+                const bMesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), buildingMat);
+                bMesh.position.y = h / 2;
+                bMesh.castShadow = true;
+                bMesh.receiveShadow = true;
+                bGroup.add(bMesh);
+
+                // Decorative Neon Stripes for Horizon Vibe
+                const neonMat = new THREE.MeshBasicMaterial({ 
+                    color: Math.random() > 0.5 ? 0xff0055 : 0x00d2ff 
+                });
+                const stripe = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, 2, w + 0.5), neonMat);
+                stripe.position.y = h * (0.3 + Math.random() * 0.6);
+                bGroup.add(stripe);
+
+                bGroup.position.set(bx, 0, bz);
+                scene.add(bGroup);
+                environmentObjects.push({ x: bx, z: bz, radius: w / 2 });
+            }
+
+            // Generate Trees
+            for (let i = 0; i < 150; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const dist = 50 + Math.random() * 500;
+                // Avoid placing directly on main roads
+                if (dist > 240 && dist < 300) continue;
+
+                const tx = Math.cos(angle) * dist;
+                const tz = Math.sin(angle) * dist;
+
+                const tree = new THREE.Group();
+                const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.2, 6, 8), treeTrunkMat);
+                trunk.position.y = 3;
+                trunk.castShadow = true;
+                tree.add(trunk);
+
+                const leaves = new THREE.Mesh(new THREE.ConeGeometry(5, 12, 8), treeLeafMat);
+                leaves.position.y = 9;
+                leaves.castShadow = true;
+                tree.add(leaves);
+
+                tree.position.set(tx, 0, tz);
+                scene.add(tree);
+            }
+
+            // Horizon Festival Main Arch
+            const archGroup = new THREE.Group();
+            const archMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+            const p1 = new THREE.Mesh(new THREE.BoxGeometry(4, 18, 4), archMat);
+            p1.position.set(-20, 9, 0);
+            const p2 = new THREE.Mesh(new THREE.BoxGeometry(4, 18, 4), archMat);
+            p2.position.set(20, 9, 0);
+            const topBar = new THREE.Mesh(new THREE.BoxGeometry(44, 5, 6), new THREE.MeshBasicMaterial({ color: 0xff0055 }));
+            topBar.position.set(0, 18, 0);
+            archGroup.add(p1, p2, topBar);
+            archGroup.position.set(0, 0, -250);
+            scene.add(archGroup);
+        }
+
+        // --- CAR PROCEDURAL CREATION ---
+        function createPlayerCar(config) {
+            if (playerCarGroup) {
+                scene.remove(playerCarGroup);
+            }
+
+            playerCarGroup = new THREE.Group();
+            wheelMeshes = [];
+            leftSignalMeshes = [];
+            rightSignalMeshes = [];
+
+            // Body Material
+            const bodyMat = new THREE.MeshStandardMaterial({
+                color: config.color,
+                metalness: 0.8,
+                roughness: 0.2
+            });
+            const glassMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.1, metalness: 0.9 });
+            const wheelMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 });
+            const rimMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9 });
+
+            // Chassis Base
+            const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.7, 4.8), bodyMat);
+            chassis.position.y = 0.6;
+            chassis.castShadow = true;
+            playerCarGroup.add(chassis);
+
+            // Cockpit Roof
+            const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.65, 2.4), glassMat);
+            cabin.position.set(0, 1.2, -0.2);
+            cabin.castShadow = true;
+            playerCarGroup.add(cabin);
+
+            // Front Spoiler / Bumper Details
+            const spoiler = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.15, 0.5), new THREE.MeshBasicMaterial({ color: 0x111111 }));
+            spoiler.position.set(0, 0.35, 2.45);
+            playerCarGroup.add(spoiler);
+
+            // Rear Wing (Sports Car Look)
+            const wingMount1 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.4, 0.3), bodyMat);
+            wingMount1.position.set(-0.7, 1.1, -2.1);
+            const wingMount2 = wingMount1.clone();
+            wingMount2.position.x = 0.7;
+            const wingBlade = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.08, 0.4), bodyMat);
+            wingBlade.position.set(0, 1.3, -2.1);
+            playerCarGroup.add(wingMount1, wingMount2, wingBlade);
+
+            // Headlights & Taillights
+            const headLightMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const hlL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.1), headLightMat);
+            hlL.position.set(-0.7, 0.65, 2.41);
+            const hlR = hlL.clone();
+            hlR.position.x = 0.7;
+
+            const tailLightMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
+            const tlL = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 0.1), tailLightMat);
+            tlL.position.set(-0.7, 0.75, -2.41);
+            const tlR = tlL.clone();
+            tlR.position.x = 0.7;
+
+            playerCarGroup.add(hlL, hlR, tlL, tlR);
+
+            // --- TURN SIGNAL INDICATOR LIGHTS (YELLOW BLINKERS) ---
+            const signalMatL = new THREE.MeshBasicMaterial({ color: 0xffaa00, visible: false });
+            const signalMatR = new THREE.MeshBasicMaterial({ color: 0xffaa00, visible: false });
+
+            // Front Left & Rear Left Signal Meshes (Left side: positive X in this model space)
+            const sigFrontL = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.14, 0.12), signalMatL);
+            sigFrontL.position.set(1.02, 0.65, 2.42);
+            const sigRearL = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.14, 0.12), signalMatL);
+            sigRearL.position.set(1.02, 0.75, -2.42);
+
+            leftSignalMeshes.push(sigFrontL, sigRearL);
+            playerCarGroup.add(sigFrontL, sigRearL);
+
+            // Front Right & Rear Right Signal Meshes (Right side: negative X in this model space)
+            const sigFrontR = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.14, 0.12), signalMatR);
+            sigFrontR.position.set(-1.02, 0.65, 2.42);
+            const sigRearR = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.14, 0.12), signalMatR);
+            sigRearR.position.set(-1.02, 0.75, -2.42);
+
+            rightSignalMeshes.push(sigFrontR, sigRearR);
+            playerCarGroup.add(sigFrontR, sigRearR);
+
+            // Wheels Generation
+            const wheelRadius = 0.45;
+            const wheelWidth = 0.35;
+            const wheelPositions = [
+                { x: -1.1, y: wheelRadius, z: 1.4 },  // FL
+                { x: 1.1, y: wheelRadius, z: 1.4 },   // FR
+                { x: -1.1, y: wheelRadius, z: -1.4 }, // RL
+                { x: 1.1, y: wheelRadius, z: -1.4 }   // RR
+            ];
+
+            wheelPositions.forEach((pos, idx) => {
+                const wGroup = new THREE.Group();
+                const tire = new THREE.Mesh(new THREE.CylinderGeometry(wheelRadius, wheelRadius, wheelWidth, 24), wheelMat);
+                tire.rotation.z = Math.PI / 2;
+                tire.castShadow = true;
+
+                const rim = new THREE.Mesh(new THREE.CylinderGeometry(wheelRadius * 0.6, wheelRadius * 0.6, wheelWidth + 0.02, 12), rimMat);
+                rim.rotation.z = Math.PI / 2;
+
+                wGroup.add(tire, rim);
+                wGroup.position.set(pos.x, pos.y, pos.z);
+
+                wheelMeshes.push({ mesh: wGroup, isFront: idx < 2 });
+                playerCarGroup.add(wGroup);
+            });
+
+            scene.add(playerCarGroup);
+
+            // Reset Physics Position
+            carPhysics.x = 0;
+            carPhysics.z = -230;
+            carPhysics.heading = Math.PI / 2;
+            carPhysics.speed = 0;
+            playerCarGroup.position.set(carPhysics.x, 0, carPhysics.z);
+            playerCarGroup.rotation.y = carPhysics.heading;
+        }
+
+        // --- GAME CONTROLS & EVENT LISTENERS ---
+        function setupEventListeners() {
+            // Keyboard Controls
+            window.addEventListener('keydown', (e) => {
+                switch(e.code) {
+                    case 'KeyW': case 'ArrowUp': keys.up = true; break;
+                    case 'KeyS': case 'ArrowDown': keys.down = true; break;
+                    case 'KeyA': case 'ArrowLeft': keys.left = true; break;
+                    case 'KeyD': case 'ArrowRight': keys.right = true; break;
+                    case 'ShiftLeft': case 'ShiftRight': keys.nitro = true; break;
+                    case 'Space': keys.brake = true; break;
+                    case 'KeyZ': toggleTurnSignal('left'); break;
+                    case 'KeyX': toggleTurnSignal('hazard'); break;
+                    case 'KeyC': toggleTurnSignal('right'); break;
+                    case 'KeyV': toggleCamera(); break;
+                    case 'KeyR': resetCarPosition(); break;
+                }
+            });
+
+            window.addEventListener('keyup', (e) => {
+                switch(e.code) {
+                    case 'KeyW': case 'ArrowUp': keys.up = false; break;
+                    case 'KeyS': case 'ArrowDown': keys.down = false; break;
+                    case 'KeyA': case 'ArrowLeft': keys.left = false; break;
+                    case 'KeyD': case 'ArrowRight': keys.right = false; break;
+                    case 'ShiftLeft': case 'ShiftRight': keys.nitro = false; break;
+                    case 'Space': keys.brake = false; break;
+                }
+            });
+
+            // Touch Screen Bindings
+            bindTouchBtn('btn-gas', 'up');
+            bindTouchBtn('btn-brake', 'down');
+            bindTouchBtn('btn-left', 'left');
+            bindTouchBtn('btn-right', 'right');
+            bindTouchBtn('btn-nitro', 'nitro');
+
+            // Signal Touch Controls
+            const btnSigL = document.getElementById('btn-signal-left');
+            const btnSigR = document.getElementById('btn-signal-right');
+            const btnSigH = document.getElementById('btn-signal-hazard');
+
+            if (btnSigL) btnSigL.addEventListener('click', (e) => { e.preventDefault(); toggleTurnSignal('left'); });
+            if (btnSigR) btnSigR.addEventListener('click', (e) => { e.preventDefault(); toggleTurnSignal('right'); });
+            if (btnSigH) btnSigH.addEventListener('click', (e) => { e.preventDefault(); toggleTurnSignal('hazard'); });
+
+            // Top Buttons
+            document.getElementById('camera-btn').addEventListener('click', toggleCamera);
+            document.getElementById('reset-btn').addEventListener('click', resetCarPosition);
+            document.getElementById('car-select-btn').addEventListener('click', openCarModal);
+            document.getElementById('close-modal-btn').addEventListener('click', closeCarModal);
+
+            // Window Resize Handling
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function toggleTurnSignal(type) {
+            if (turnSignalState === type) {
+                turnSignalState = 'off';
+                showNotification("燈光關閉");
+            } else {
+                turnSignalState = type;
+                if (type === 'left') showNotification("開啟左轉燈 (Z)");
+                else if (type === 'right') showNotification("開啟右轉燈 (C)");
+                else if (type === 'hazard') showNotification("開啟雙黃警示燈 (X)");
+            }
+        }
+
+        // --- UPDATE TURN SIGNAL BLINK ANIMATION ---
+        function updateTurnSignals() {
+            signalBlinkTimer += 0.05;
+            if (signalBlinkTimer >= 0.4) {
+                signalBlinkTimer = 0;
+                signalBlinkVisible = !signalBlinkVisible;
+            }
+
+            const showLeft = (turnSignalState === 'left' || turnSignalState === 'hazard') && signalBlinkVisible;
+            const showRight = (turnSignalState === 'right' || turnSignalState === 'hazard') && signalBlinkVisible;
+
+            leftSignalMeshes.forEach(mesh => {
+                mesh.material.visible = showLeft;
+            });
+
+            rightSignalMeshes.forEach(mesh => {
+                mesh.material.visible = showRight;
+            });
+        }
+
+        function bindTouchBtn(elementId, keyProp) {
+            const btn = document.getElementById(elementId);
+            if (!btn) return;
+            btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[keyProp] = true; });
+            btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[keyProp] = false; });
+        }
+
+        function toggleCamera() {
+            cameraMode = (cameraMode + 1) % 3;
+            const names = ["追縱第三人稱", "引擎蓋第一人稱", "遠景俯瞰"];
+            showNotification(`視角模式: ${names[cameraMode]}`);
+        }
+
+        function resetCarPosition() {
+            carPhysics.speed = 0;
+            carPhysics.x = playerCarGroup.position.x;
+            carPhysics.z = playerCarGroup.position.z;
+            carPhysics.heading = playerCarGroup.rotation.y;
+            showNotification("車輛重置完成");
+        }
+
+        // --- CAR PHYSICS & DRIFT ENGINE ---
+        function updatePhysics() {
+            const config = CAR_PRESETS[selectedCarIndex];
+
+            // 1. Throttle & Acceleration
+            let currentTopSpeed = config.topSpeed;
+            let currentAccel = config.accel;
+
+            // Nitro Boost Logic
+            if (keys.nitro && carPhysics.nitro > 0 && keys.up) {
+                carPhysics.isNitroActive = true;
+                currentTopSpeed *= 1.35;
+                currentAccel *= 2.2;
+                carPhysics.nitro = Math.max(0, carPhysics.nitro - 0.6);
+            } else {
+                carPhysics.isNitroActive = false;
+                if (carPhysics.nitro < 100) carPhysics.nitro += 0.15; // Slow recharge
+            }
+
+            if (keys.up) {
+                if (carPhysics.speed < currentTopSpeed) {
+                    carPhysics.speed += currentAccel;
+                }
+            } else if (keys.down) {
+                if (carPhysics.speed > -30) {
+                    carPhysics.speed -= currentAccel * 0.8;
+                }
+            } else {
+                // Natural Friction Resistance
+                carPhysics.speed *= 0.985;
+            }
+
+            // Handbrake Logic
+            if (keys.brake) {
+                carPhysics.speed *= 0.93;
+            }
+
+            // 2. Steering & Turning Radius (Scales with speed)
+            const speedRatio = Math.abs(carPhysics.speed) / config.topSpeed;
+            let turnSpeed = config.handling * (1.1 - speedRatio * 0.4);
+
+            if (keys.left) {
+                carPhysics.steeringAngle = THREE.MathUtils.lerp(carPhysics.steeringAngle, Math.PI / 6, 0.1);
+                carPhysics.heading += turnSpeed * (carPhysics.speed >= 0 ? 1 : -1);
+            } else if (keys.right) {
+                carPhysics.steeringAngle = THREE.MathUtils.lerp(carPhysics.steeringAngle, -Math.PI / 6, 0.1);
+                carPhysics.heading -= turnSpeed * (carPhysics.speed >= 0 ? 1 : -1);
+            } else {
+                carPhysics.steeringAngle = THREE.MathUtils.lerp(carPhysics.steeringAngle, 0, 0.1);
+            }
+
+            // 3. Drift Physics Logic
+            const turningHard = (keys.left || keys.right) && Math.abs(carPhysics.speed) > 60;
+            if ((turningHard && keys.brake) || (turningHard && keys.nitro)) {
+                carPhysics.isDrifting = true;
+            } else if (Math.abs(carPhysics.steeringAngle) < 0.05 || Math.abs(carPhysics.speed) < 30) {
+                carPhysics.isDrifting = false;
+            }
+
+            if (carPhysics.isDrifting) {
+                // Drift score accumulation
+                carPhysics.driftScore += Math.floor(Math.abs(carPhysics.speed) * 0.5 * carPhysics.driftMultiplier);
+                carPhysics.driftMultiplier = Math.min(5.0, carPhysics.driftMultiplier + 0.005);
+                updateDriftUI(true);
+            } else {
+                if (carPhysics.driftScore > 0) {
+                    // Gradual fade drift counter after drift ends
+                    setTimeout(() => {
+                        if (!carPhysics.isDrifting) {
+                            carPhysics.driftScore = 0;
+                            carPhysics.driftMultiplier = 1.0;
+                            updateDriftUI(false);
+                        }
+                    }, 1500);
+                }
+            }
+
+            // 4. Position & Vector Movement Update
+            const moveStep = carPhysics.speed / 3.6 * 0.016 * 60; // KM/H to World Units per Frame
+            let nextX = carPhysics.x + Math.sin(carPhysics.heading) * moveStep;
+            let nextZ = carPhysics.z + Math.cos(carPhysics.heading) * moveStep;
+
+            // --- 建築物碰撞檢測 (Building Collision Check) ---
+            const carRadius = 1.8; // 車輛包覆圓半徑
+            let hasCollision = false;
+
+            for (let i = 0; i < environmentObjects.length; i++) {
+                const obj = environmentObjects[i];
+                const dx = nextX - obj.x;
+                const dz = nextZ - obj.z;
+                const distSq = dx * dx + dz * dz;
+                const minDist = obj.radius + carRadius;
+
+                if (distSq < minDist * minDist) {
+                    hasCollision = true;
+                    // 撞到建築物時直接停止速度並微幅退回
+                    carPhysics.speed = -carPhysics.speed * 0.2; // 輕微彈回
+                    break;
+                }
+            }
+
+            // 無碰撞時更新位置
+            if (!hasCollision) {
+                carPhysics.x = nextX;
+                carPhysics.z = nextZ;
+            }
+
+            // --- 邊界隱形牆系統 (Invisible Wall Boundaries) ---
+            const wallLimit = mapBoundaries - 10;
+            if (Math.abs(carPhysics.x) >= wallLimit || Math.abs(carPhysics.z) >= wallLimit) {
+                carPhysics.x = Math.max(-wallLimit, Math.min(wallLimit, carPhysics.x));
+                carPhysics.z = Math.max(-wallLimit, Math.min(wallLimit, carPhysics.z));
+                carPhysics.speed *= 0.5; // 撞擊邊界牆減速
+            }
+
+            // Apply to Mesh
+            playerCarGroup.position.x = carPhysics.x;
+            playerCarGroup.position.z = carPhysics.z;
+            playerCarGroup.rotation.y = carPhysics.heading;
+
+            // Animate Front Steering Wheels
+            wheelMeshes.forEach(w => {
+                if (w.isFront) {
+                    w.mesh.rotation.y = carPhysics.steeringAngle;
+                }
+                // Rolling wheels effect
+                w.mesh.children[0].rotation.x += carPhysics.speed * 0.002;
+            });
+        }
+
+        // --- CAMERA CONTROLLER ---
+        function updateCamera() {
+            if (!playerCarGroup) return;
+
+            const carPos = playerCarGroup.position;
+            const carRotation = playerCarGroup.rotation.y;
+
+            if (cameraMode === 0) {
+                // Third-Person Chase Cam
+                const targetCamX = carPos.x - Math.sin(carRotation) * 12;
+                const targetCamZ = carPos.z - Math.cos(carRotation) * 12;
+                const targetCamY = carPos.y + 4.5;
+
+                camera.position.x = THREE.MathUtils.lerp(camera.position.x, targetCamX, 0.1);
+                camera.position.y = THREE.MathUtils.lerp(camera.position.y, targetCamY, 0.1);
+                camera.position.z = THREE.MathUtils.lerp(camera.position.z, targetCamZ, 0.1);
+
+                camera.lookAt(carPos.x, carPos.y + 1.5, carPos.z);
+            } else if (cameraMode === 1) {
+                // First-Person Hood Cam
+                const hoodX = carPos.x + Math.sin(carRotation) * 0.5;
+                const hoodZ = carPos.z + Math.cos(carRotation) * 0.5;
+                camera.position.set(hoodX, carPos.y + 1.2, hoodZ);
+
+                const lookTargetX = carPos.x + Math.sin(carRotation) * 20;
+                const lookTargetZ = carPos.z + Math.cos(carRotation) * 20;
+                camera.lookAt(lookTargetX, carPos.y + 1.2, lookTargetZ);
+            } else if (cameraMode === 2) {
+                // High Angle Orbit Cam
+                camera.position.set(carPos.x, carPos.y + 45, carPos.z + 30);
+                camera.lookAt(carPos);
+            }
+        }
+
+        // --- UI & MINIMAP ENGINE ---
+        function initMinimap() {
+            minimapCanvas = document.getElementById('minimap');
+            minimapCtx = minimapCanvas.getContext('2d');
+            minimapCanvas.width = 180;
+            minimapCanvas.height = 180;
+        }
+
+        function updateMinimap() {
+            if (!minimapCtx) return;
+
+            minimapCtx.clearRect(0, 0, 180, 180);
+
+            // Minimap Background
+            minimapCtx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+            minimapCtx.fillRect(0, 0, 180, 180);
+
+            // Translate Origin to Player Position Center
+            minimapCtx.save();
+            minimapCtx.translate(90, 90);
+            minimapCtx.rotate(-carPhysics.heading);
+
+            // Draw Road Ring on Minimap
+            minimapCtx.strokeStyle = '#475569';
+            minimapCtx.lineWidth = 14;
+            minimapCtx.beginPath();
+            minimapCtx.arc(0, 0, 70, 0, Math.PI * 2);
+            minimapCtx.stroke();
+
+            minimapCtx.strokeStyle = '#e2e8f0';
+            minimapCtx.lineWidth = 1;
+            minimapCtx.beginPath();
+            minimapCtx.arc(0, 0, 70, 0, Math.PI * 2);
+            minimapCtx.stroke();
+
+            minimapCtx.restore();
+        }
+
+        function updateHUD() {
+            // Speedometer Display
+            const speedKmh = Math.floor(Math.abs(carPhysics.speed));
+            document.getElementById('speed-text').innerText = speedKmh;
+
+            // Gear Simulation
+            let gear = 'D';
+            if (speedKmh === 0) gear = 'N';
+            else if (carPhysics.speed < 0) gear = 'R';
+            else if (speedKmh > 180) gear = '6';
+            else if (speedKmh > 140) gear = '5';
+            else if (speedKmh > 100) gear = '4';
+            else if (speedKmh > 60) gear = '3';
+            else if (speedKmh > 30) gear = '2';
+            else gear = '1';
+            document.getElementById('gear-text').innerText = `GEAR ${gear}`;
+
+            // Nitro Bar UI
+            const nitroPercent = carPhysics.nitro;
+            const nitroBar = document.getElementById('nitro-bar');
+            nitroBar.style.width = `${nitroPercent}%`;
+            if (carPhysics.isNitroActive) {
+                nitroBar.classList.add('animate-pulse', 'from-yellow-400', 'to-red-500');
+            } else {
+                nitroBar.classList.remove('animate-pulse', 'from-yellow-400', 'to-red-500');
+            }
+        }
+
+        function updateDriftUI(visible) {
+            const container = document.getElementById('drift-score-container');
+            const scoreText = document.getElementById('drift-score');
+            const multText = document.getElementById('drift-multiplier');
+
+            if (visible) {
+                container.style.opacity = '1';
+                scoreText.innerText = carPhysics.driftScore.toLocaleString();
+                multText.innerText = carPhysics.driftMultiplier.toFixed(1);
+            } else {
+                container.style.opacity = '0';
+            }
+        }
+
+        function showNotification(text) {
+            const toast = document.getElementById('notification');
+            const toastText = document.getElementById('notification-text');
+            toastText.innerText = text;
+            toast.style.opacity = '1';
+            toast.style.transform = 'translateY(0px)';
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(20px)';
+            }, 3000);
+        }
+
+        // --- CAR SELECTION MODAL LOGIC ---
+        function populateCarModal() {
+            const container = document.getElementById('car-list');
+            container.innerHTML = '';
+
+            CAR_PRESETS.forEach((car, index) => {
+                const card = document.createElement('div');
+                card.className = `horizon-card p-4 rounded-xl cursor-pointer hover:border-pink-500 transition border ${index === selectedCarIndex ? 'border-pink-500 bg-pink-500/10' : 'border-white/10'}`;
+                card.onclick = () => selectCar(index);
+
+                const hexColor = '#' + car.color.toString(16).padStart(6, '0');
+
+                card.innerHTML = `
+                    <div class="h-24 rounded-lg mb-3 flex items-center justify-center relative overflow-hidden" style="background: linear-gradient(135deg, ${hexColor}88, #111)">
+                        <i class="fa-solid fa-car-side text-5xl text-white drop-shadow-md"></i>
+                        <span class="absolute top-2 right-2 text-[10px] horizon-font bg-black/60 px-2 py-0.5 rounded text-yellow-400">${car.type}</span>
+                    </div>
+                    <h3 class="horizon-font text-lg text-white mb-1">${car.name}</h3>
+                    <p class="text-xs text-gray-400 mb-3">${car.desc}</p>
+                    <div class="space-y-1 text-xs horizon-font">
+                        <div class="flex justify-between text-gray-300"><span>TOP SPEED</span><span>${car.topSpeed} KM/H</span></div>
+                        <div class="w-full bg-gray-700 h-1 rounded-full"><div class="bg-pink-500 h-1 rounded-full" style="width: ${(car.topSpeed/260)*100}%"></div></div>
+                        <div class="flex justify-between text-gray-300 mt-1"><span>HANDLING</span><span>${(car.handling*1000).toFixed(0)}</span></div>
+                        <div class="w-full bg-gray-700 h-1 rounded-full"><div class="bg-yellow-400 h-1 rounded-full" style="width: ${(car.handling/0.06)*100}%"></div></div>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function openCarModal() {
+            const modal = document.getElementById('car-modal');
+            modal.classList.remove('hidden');
+            setTimeout(() => modal.style.opacity = '1', 10);
+        }
+
+        function closeCarModal() {
+            const modal = document.getElementById('car-modal');
+            modal.style.opacity = '0';
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        }
+
+        function selectCar(index) {
+            selectedCarIndex = index;
+            createPlayerCar(CAR_PRESETS[selectedCarIndex]);
+            populateCarModal();
+            closeCarModal();
+            showNotification(`已切換車輛: ${CAR_PRESETS[selectedCarIndex].name}`);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- MAIN GAME LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            updatePhysics();
+            updateTurnSignals();
+            updateCamera();
+            updateMinimap();
+            updateHUD();
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
